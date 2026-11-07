@@ -18,9 +18,10 @@ try{
  if(phase==='seed'){
   app=await _electron.launch({executablePath,timeout:60000});const page=await app.firstWindow();await page.getByRole('heading',{name:'Welcome, Ally'}).waitFor({timeout:30000});
   const fixture=await app.evaluate(async({app,dialog})=>{
-   const fs=require('node:fs'),path=require('node:path'),{pathToFileURL}=require('node:url');
-   const {Store}=await import(pathToFileURL(path.join(app.getAppPath(),'src/store.mjs')).href);
-   const {sealSetup}=await import(pathToFileURL(path.join(app.getAppPath(),'desktop/setup-bundle.mjs')).href);
+   const require=process.getBuiltinModule('node:module').createRequire(process.getBuiltinModule('node:path').join(app.getAppPath(),'package.json'));
+   const fs=require('node:fs'),path=require('node:path');
+   const {Store}=require(path.join(app.getAppPath(),'src/store.mjs'));
+   const {sealSetup}=require(path.join(app.getAppPath(),'desktop/setup-bundle.mjs'));
    const dir=fs.mkdtempSync(path.join(require('node:os').tmpdir(),'ally-upgrade-fixture-')),dbPath=path.join(dir,'fixture.sqlite'),store=new Store(dbPath),now=new Date().toISOString(),month=now.slice(0,7);
    store.saveSetting('profile-identity',{id:'synthetic-profile'});
    store.saveSetting('connections',{list:[{id:'a1',provider:'chase',institutionId:'ins_56',name:'Synthetic bank'}]});
