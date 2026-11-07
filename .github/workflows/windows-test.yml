@@ -1,0 +1,39 @@
+name: Test Windows installer
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        required: true
+        default: v1.0.0
+        type: string
+permissions:
+  contents: read
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 8
+    steps:
+      - name: Download installer
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          gh release download $env:RELEASE_TAG --repo $env:GITHUB_REPOSITORY --pattern '*.exe' --dir "$env:RUNNER_TEMP/ally-installer"
+          if ($LASTEXITCODE -ne 0) { throw "Download failed" }
+      - name: Install and test Windows credential protection and SQLite
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem "$env:RUNNER_TEMP/ally-installer" -Filter *.exe | Select-Object -First 1
+          $install = Start-Process $installer.FullName -ArgumentList '/S' -PassThru
+          if (-not $install.WaitForExit(120000)) { $install.Kill(); throw "Installer timed out" }
+          if ($install.ExitCode -ne 0) { throw "Installer failed: $($install.ExitCode)" }
+          $exe = Get-ChildItem "$env:LOCALAPPDATA/Programs" -Filter 'Ally Finance.exe' -Recurse | Select-Object -First 1
+          if (-not $exe) { throw "Installed app not found" }
+          $out = "$env:RUNNER_TEMP/ally-smoke-out.txt"
+          $err = "$env:RUNNER_TEMP/ally-smoke-err.txt"
+          $process = Start-Process $exe.FullName -ArgumentList '--smoke-test' -RedirectStandardOutput $out -RedirectStandardError $err -PassThru
+          if (-not $process.WaitForExit(60000)) { $process.Kill(); Get-Content $err; throw "App test timed out" }
+          Get-Content $out
+          Get-Content $err
+          if ($process.ExitCode -ne 0 -or -not (Select-String -Path $out -Pattern 'ALLY_DESKTOP_SMOKE_OK' -Quiet)) { throw "Desktop smoke test failed" }
