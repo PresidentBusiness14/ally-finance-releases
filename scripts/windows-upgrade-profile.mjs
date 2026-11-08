@@ -42,11 +42,11 @@ try{
   await page.evaluate(async()=>{
    const s=await(await fetch('/api/state')).json(),headers={'Content-Type':'application/json','X-App-Token':s.csrf};
    for(let i=0;i<40;i++){
-    const body={name:'Added after installation '+i,type:['House','Life','Travel','Adult Garbage'][i%4],priority:i%2?'Priority':'Fun',cost:(200+i+.23).toFixed(2),reserved:i%3?'0':'50',status:i%3?'idea':'saving',notes:'User-written notes '+i,targetDate:'2027-12-01'};
+    const body={name:'Added after installation '+i,type:['House','Life','Travel','Adult Garbage'][i%4],priority:i%2?'Priority':'Fun',cost:(200+i+.23).toFixed(2),reserved:i%3?'0':'50',status:i>0&&i%7===0?'complete':i%3?'idea':'saving',notes:'User-written notes '+i,targetDate:'2027-12-01'};
     const r=await fetch('/api/plan',{method:'POST',headers,body:JSON.stringify(body)});if(!r.ok)throw Error('Plan creation failed');const p=await r.json();
     if(i===0){const a=await fetch('/api/plan/archive',{method:'POST',headers,body:JSON.stringify({id:p.id,revision:p.revision})});if(!a.ok)throw Error('Archive failed');}
    }
-   for(const [label,amount] of [['Animals','189.23'],['Electric','271.19'],['Mortgage','1459.00']]){const r=await fetch('/api/budget',{method:'POST',headers,body:JSON.stringify({group:'Joint',label,month:s.planning.today.slice(0,7),amount,kind:'fixed'})});if(!r.ok)throw Error('Budget save failed');}
+   for(const [group,label,amount] of [['Joint','Mortgage','1459.00'],['Personal Baseline','Gas','271.19'],['Personal Choices','Eating out','189.23']]){const r=await fetch('/api/budget',{method:'POST',headers,body:JSON.stringify({group,label,month:s.planning.today.slice(0,7),amount,kind:'fixed'})});if(!r.ok)throw Error('Budget save failed');}
   });
   const state=await page.evaluate(async()=>{const s=await(await fetch('/api/state')).json();return {planning:s.planning,accounts:s.accounts,rows:s.rows};});assert.equal(state.planning.plans.length,41);assert.equal(state.planning.budgets.length,3);assert.equal(state.accounts.length,1);assert.equal(state.rows.length,1);
   await app.close();app=null;writeFileSync(recordPath,JSON.stringify({userData:fixture.userData,state,...snapshot(fixture.userData)}));
@@ -59,8 +59,40 @@ try{
   const after=await page.evaluate(async()=>{const s=await(await fetch('/api/state')).json();return {planning:s.planning,accounts:s.accounts,rows:s.rows};});assert.deepEqual(after,before.state);
   await page.getByRole('link',{name:'Settings',exact:true}).click();await page.getByRole('heading',{name:'Notifications',exact:true}).waitFor();
   assert.equal(await page.getByRole('switch',{name:'Enable notifications',exact:true}).isChecked(),false);
+  assert.equal(await page.getByRole('switch',{name:'Share technical status',exact:true}).isChecked(),true);
+  assert.equal(await page.getByRole('link',{name:'App status',exact:true}).isVisible(),false);
+  const desktop=await page.evaluate(()=>window.allyDesktop.info());assert.equal(desktop.reporting.configured,true);assert.equal(desktop.reporting.enabled,true);
+  const nativeReporting=await app.evaluate(async({app,safeStorage},candidateVersion)=>{
+   const require=process.getBuiltinModule('node:module').createRequire(process.getBuiltinModule('node:path').join(app.getAppPath(),'package.json'));
+   const fs=require('node:fs'),path=require('node:path'),crypto=require('node:crypto'),assert=require('node:assert/strict');
+   const {Store}=require(path.join(app.getAppPath(),'src/store.mjs')),{DesktopVault}=require(path.join(app.getAppPath(),'desktop/vault.mjs')),{StatusReporter}=require(path.join(app.getAppPath(),'desktop/status-reporter.mjs'));
+   const dir=fs.mkdtempSync(path.join(require('node:os').tmpdir(),'ally-native-report-')),store=new Store(':memory:'),vaultPath=path.join(dir,'credentials.bin');
+   try{
+    const keys=crypto.generateKeyPairSync('rsa',{modulusLength:2048}),vault=new DesktopVault(vaultPath,safeStorage),endpoint='https://native-test.example.workers.dev',requests=[];
+    store.saveSetting('profile-identity',{id:'native-report-fixture'});store.saveSetting('plans',{list:[{name:'Private plan',costCents:12345}]});
+    vault.set('google-service-account',JSON.stringify({private_key:keys.privateKey.export({type:'pkcs8',format:'pem'})}));
+    const fetcher=async(url,options)=>{
+     requests.push(url);const body=JSON.parse(options.body);
+     if(url.endsWith('/api/enroll')){
+      const parts=body.assertion.split('.');assert.equal(crypto.verify('RSA-SHA256',Buffer.from(parts[0]+'.'+parts[1]),keys.publicKey,Buffer.from(parts[2],'base64url')),true);
+      const claim=JSON.parse(Buffer.from(parts[1],'base64url'));assert.equal(claim.aud,endpoint);assert.equal(claim.purpose,'ally-status-enroll-v1');
+      return new Response(JSON.stringify({token:'a'.repeat(64)}));
+     }
+     assert.equal(options.headers.Authorization,'Bearer '+'a'.repeat(64));assert.equal(body.platform,'win32');assert.equal(body.version,candidateVersion);assert.equal(body.backupState,'verified');assert.equal(JSON.stringify(body).includes('Private plan'),false);assert.equal(JSON.stringify(body).includes('private_key'),false);
+     return new Response(JSON.stringify({ok:true}));
+    };
+    const reporter=new StatusReporter(store,vault,{endpoint,version:candidateVersion,fetcher});reporter.ready({backupAt:new Date().toISOString()});assert.equal(await reporter.flush(),true);
+    const reopened=new DesktopVault(vaultPath,safeStorage);assert.ok(reopened.get('status-report-auth'));assert.equal(fs.readFileSync(vaultPath).includes(Buffer.from('native-report-fixture')),false);
+    assert.equal(await new StatusReporter(store,reopened,{endpoint,version:candidateVersion,fetcher}).flush(),true);assert.equal(requests.filter(url=>url.endsWith('/api/enroll')).length,1);
+    reporter.configure(false);const count=requests.length;assert.equal(await reporter.flush(),false);assert.equal(requests.length,count);assert.equal(store.setting('plans').list[0].name,'Private plan');
+    return {nativeEnrollment:true,protectedCredentialPersistence:true,reportPrivacy:true,reportingToggle:true};
+   }finally{store.close();fs.rmSync(dir,{recursive:true,force:true});}
+  },version);assert.deepEqual(nativeReporting,{nativeEnrollment:true,protectedCredentialPersistence:true,reportPrivacy:true,reportingToggle:true});console.log('NATIVE_REPORTING_OK: installed code, Windows credential protection, enrollment signatures, private reports, persistent connection and opt-out');
   await app.close();app=null;
-  const saved=snapshot(before.userData);assert.deepEqual(saved.tables,before.tables);for(const f of ['credentials.bin','profile.json','ready'])assert.equal(saved.files[f],before.files[f]);
+  const saved=snapshot(before.userData),report=saved.tables.app_state.find(row=>row.key==='status-reporting');assert.ok(report);assert.equal(JSON.parse(report.payload).installedVersion,version);assert.equal(JSON.parse(report.payload).backupState,'verified');
+  // Reporting may add its own setting. Every pre-existing setting and financial record must match exactly.
+  const withoutReporting=tables=>({...tables,app_state:tables.app_state.filter(row=>row.key!=='status-reporting')});
+  assert.deepEqual(withoutReporting(saved.tables),withoutReporting(before.tables));for(const f of ['credentials.bin','profile.json','ready'])assert.equal(saved.files[f],before.files[f]);
   const backupDir=join(before.userData,'backups','before-'+version);assert.ok(existsSync(join(backupDir,'manifest.json')));const manifest=JSON.parse(readFileSync(join(backupDir,'manifest.json')));
   for(const [file,digest] of Object.entries(manifest.files))assert.equal(hash(join(backupDir,file)),digest);
   assert.deepEqual(snapshot(backupDir).tables,before.tables);
