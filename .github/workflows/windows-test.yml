@@ -4,13 +4,13 @@ on:
     inputs:
       tag:
         required: true
-        default: v1.0.1
+        default: v1.0.2
         type: string
 permissions:
   contents: read
 jobs:
   windows:
-    runs-on: windows-latest
+    name: Upgrade from ${{ matrix.baseline }}\n    strategy:\n      fail-fast: false\n      matrix:\n        baseline: [v1.0.0, v1.0.1]\n    runs-on: windows-latest
     timeout-minutes: 12
     steps:
       - uses: actions/checkout@v4
@@ -26,12 +26,13 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ inputs.tag }}
+          BASELINE_TAG: ${{ matrix.baseline }}
         run: |
           gh release download $env:RELEASE_TAG --repo $env:GITHUB_REPOSITORY --pattern '*.exe' --dir "$env:RUNNER_TEMP/ally-installer"
           if ($LASTEXITCODE -ne 0) { throw "Download failed" }
-          gh release download v1.0.0 --repo $env:GITHUB_REPOSITORY --pattern '*.exe' --dir "$env:RUNNER_TEMP/ally-previous"
+          gh release download $env:BASELINE_TAG --repo $env:GITHUB_REPOSITORY --pattern '*.exe' --dir "$env:RUNNER_TEMP/ally-previous"
           if ($LASTEXITCODE -ne 0) { throw "Baseline download failed" }
-      - name: Install 1.0.0 and populate real app storage
+      - name: Install baseline and populate real app storage
         shell: pwsh
         run: |
           $previous = Get-ChildItem "$env:RUNNER_TEMP/ally-previous" -Filter *.exe | Select-Object -First 1
