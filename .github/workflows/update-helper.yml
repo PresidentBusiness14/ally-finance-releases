@@ -1,0 +1,14 @@
+name: Test Windows restart helper
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  restart:
+    runs-on: windows-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify native restart helper with synthetic executables
+        shell: pwsh
+        run: ./scripts/test-update-helper.ps1
