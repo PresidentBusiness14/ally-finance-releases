@@ -40,10 +40,12 @@ function Pump-UpdateWindow {
  Start-Sleep -Milliseconds 100
 }
 $startedInstaller = $false
+$failureStage = 'starting'
 try {
  $form.Show()
  [System.Windows.Forms.Application]::DoEvents()
  Save-UpdateState 'helper-ready'
+ $failureStage = 'waiting-for-app'
  $parent = Get-Process -Id $ParentProcessId -ErrorAction SilentlyContinue
  $deadline = [DateTime]::UtcNow.AddSeconds(60)
  while ($parent -and -not $parent.HasExited) {
@@ -53,6 +55,7 @@ try {
  if ((Get-Item -LiteralPath $Installer).Length -ne $ExpectedSize) { throw 'Installer size mismatch.' }
  if ((Get-FileHash -LiteralPath $Installer -Algorithm SHA256).Hash.ToLowerInvariant() -ne $ExpectedSha256) { throw 'Installer checksum mismatch.' }
  $label.Text = 'Installing update...'
+ $failureStage = 'installing'
  Save-UpdateState 'installing'
  # Suppress the installer's shortcut-based relaunch. Open the executable directly after it exits.
  $installerProcess = Start-Process -FilePath $Installer -ArgumentList @('/S','--updated') -PassThru
@@ -62,6 +65,7 @@ try {
  if ($installerProcess.ExitCode -ne 0) { throw 'The installer failed.' }
  if (-not (Test-Path -LiteralPath $Executable)) { throw 'Application executable missing.' }
  $label.Text = 'Opening Ally Finance...'
+ $failureStage = 'opening'
  Save-UpdateState 'opening'
  Start-Process -FilePath $Executable -ArgumentList @('--updated',('--update-id=' + $AttemptId))
  $deadline = [DateTime]::UtcNow.AddSeconds(60)
@@ -74,6 +78,7 @@ try {
  }
  throw 'The updated app did not confirm startup.'
 } catch {
+ [Console]::Error.WriteLine('Update helper failed at ' + $failureStage + ': ' + $_.Exception.Message)
  try { Save-UpdateState 'failed' } catch { }
  $form.Hide()
  $message = if ($startedInstaller) { 'The update could not finish reopening Ally Finance. Open Ally Finance from the Start menu.' } else { 'The update could not start. Your current app is still available.' }
