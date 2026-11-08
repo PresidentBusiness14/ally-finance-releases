@@ -10,7 +10,12 @@ permissions:
   contents: read
 jobs:
   windows:
-    name: Upgrade from ${{ matrix.baseline }}\n    strategy:\n      fail-fast: false\n      matrix:\n        baseline: [v1.0.0, v1.0.1]\n    runs-on: windows-latest
+    name: Upgrade from ${{ matrix.baseline }}
+    strategy:
+      fail-fast: false
+      matrix:
+        baseline: [v1.0.0, v1.0.1]
+    runs-on: windows-latest
     timeout-minutes: 12
     steps:
       - uses: actions/checkout@v4
