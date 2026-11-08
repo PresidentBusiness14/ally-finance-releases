@@ -20,8 +20,8 @@ try{
   const updater=new AppUpdater({version:app.getVersion(),config,dataDir,
    fetcher:async(url,options)=>String(url).endsWith('/releases/latest/download/update.json')?Response.json(manifest):fetch(url,options),
    onChange:state=>{phases.push(state.phase);fs.mkdirSync(path.dirname(eventsPath),{recursive:true});fs.writeFileSync(eventsPath,JSON.stringify(phases));},
-   prepareInstall:release=>ensureUpgradeBackup(dataDir,release.version,{attempt:String(Date.now())}),
-   launchInstall:async(installer,release,installing)=>{await launchWindowsInstaller({dataDir,installer,release});installing();setTimeout(()=>app.quit(),250);}
+   prepareInstall:async release=>{try{await ensureUpgradeBackup(dataDir,release.version,{attempt:String(Date.now())});}catch(e){console.error('CI_BACKUP_FAILURE',e.message);throw e;}},
+   launchInstall:async(installer,release,installing)=>{try{await launchWindowsInstaller({dataDir,installer,release});}catch(e){console.error('CI_HELPER_FAILURE',e.message);throw e;}installing();setTimeout(()=>app.quit(),250);}
   });
   let state=await updater.check();if(state.phase!=='available'||state.version!==version)throw Error('Signed candidate was not available: '+state.phase);
   state=await updater.download();if(state.phase!=='ready')throw Error('Candidate download failed: '+state.phase);
