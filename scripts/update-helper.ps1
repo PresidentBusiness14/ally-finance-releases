@@ -10,6 +10,8 @@ param(
  [Parameter(Mandatory=$true)][ValidatePattern('^[a-f0-9-]{36}$')][string]$AttemptId
 )
 $ErrorActionPreference = 'Stop'
+# Use the Windows PowerShell modules even when launched by a PowerShell 7 parent.
+$env:PSModulePath = [IO.Path]::Combine($env:SystemRoot,'System32\WindowsPowerShell\v1.0\Modules')
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 $form = New-Object System.Windows.Forms.Form
@@ -52,8 +54,13 @@ try {
   if ([DateTime]::UtcNow -gt $deadline) { throw 'The current app did not close.' }
   Pump-UpdateWindow
  }
- if ((Get-Item -LiteralPath $Installer).Length -ne $ExpectedSize) { throw 'Installer size mismatch.' }
- if ((Get-FileHash -LiteralPath $Installer -Algorithm SHA256).Hash.ToLowerInvariant() -ne $ExpectedSha256) { throw 'Installer checksum mismatch.' }
+ $failureStage = 'verification'
+ if (([IO.FileInfo]$Installer).Length -ne $ExpectedSize) { throw 'Installer size mismatch.' }
+ $stream = [IO.File]::OpenRead($Installer)
+ $algorithm = [Security.Cryptography.SHA256]::Create()
+ try { $actualHash = [BitConverter]::ToString($algorithm.ComputeHash($stream)).Replace('-','').ToLowerInvariant() }
+ finally { $stream.Dispose();$algorithm.Dispose() }
+ if ($actualHash -ne $ExpectedSha256) { throw 'Installer checksum mismatch.' }
  $label.Text = 'Installing update...'
  $failureStage = 'installing'
  Save-UpdateState 'installing'
