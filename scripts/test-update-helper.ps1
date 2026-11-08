@@ -49,9 +49,10 @@ $hash = (Get-FileHash -LiteralPath $executable).Hash.ToLowerInvariant()
 $size = (Get-Item -LiteralPath $executable).Length
 $quoted = { param($s) '"' + $s + '"' }
 $arguments = @('-NoLogo','-NoProfile','-NonInteractive','-STA','-ExecutionPolicy','Bypass','-File',(& $quoted $helper),'-Installer',(& $quoted $executable),'-Executable',(& $quoted $executable),'-ExpectedSha256',$hash,'-ExpectedSize',$size,'-ParentProcessId',$parent.Id,'-StateFile',(& $quoted $state),'-TargetVersion','99.0.0','-AttemptId',$attempt)
-$process = Start-Process -FilePath $powershell -ArgumentList $arguments -PassThru
+$stderr = Join-Path $folder 'helper-errors.txt'
+$process = Start-Process -FilePath $powershell -ArgumentList $arguments -PassThru -RedirectStandardError $stderr
 try {
- if (-not $process.WaitForExit(45000)) { Stop-Process -Id $process.Id -Force; throw 'Restart helper timed out.' }
+ if (-not $process.WaitForExit(45000)) { if (Test-Path $stderr) { Write-Host (Get-Content $stderr -Raw) };if (Test-Path $state) { Write-Host (Get-Content $state -Raw) };Write-Host ('Markers: ' + ((Get-ChildItem $folder).Name -join ', '));Stop-Process -Id $process.Id -Force;throw 'Restart helper timed out.' }
  if ($process.ExitCode -ne 0) { throw 'Restart helper failed.' }
  $result = Get-Content -LiteralPath $state -Raw | ConvertFrom-Json
  if ($result.phase -ne 'complete' -or -not (Test-Path (Join-Path $folder 'reopened'))) { throw 'App did not reopen.' }
