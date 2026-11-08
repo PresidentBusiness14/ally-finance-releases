@@ -4,7 +4,7 @@ on:
     inputs:
       tag:
         required: true
-        default: v1.0.3
+        default: v1.0.4
         type: string
       baseline:
         description: Upgrade paths to run
@@ -13,7 +13,7 @@ on:
         type: choice
         options:
           - all
-          - v1.0.2
+          - v1.0.3
 permissions:
   contents: read
 jobs:
@@ -22,7 +22,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        baseline: ${{ fromJSON(inputs.baseline == 'v1.0.2' && '["v1.0.2"]' || '["v1.0.0", "v1.0.1", "v1.0.2"]') }}
+        baseline: ${{ fromJSON(inputs.baseline == 'v1.0.3' && '["v1.0.3"]' || '["v1.0.0", "v1.0.1", "v1.0.2", "v1.0.3"]') }}
     runs-on: windows-latest
     timeout-minutes: 15
     steps:
@@ -55,7 +55,7 @@ jobs:
           node scripts/windows-upgrade-profile.mjs seed $exe.FullName "$env:RUNNER_TEMP/ally-before.json"
           if ($LASTEXITCODE -ne 0) { throw "Populated profile setup failed" }
       - name: Exercise real updater download, installer and automatic reopen
-        if: matrix.baseline == 'v1.0.2'
+        if: matrix.baseline == 'v1.0.3'
         shell: pwsh
         env:
           RELEASE_TAG: ${{ inputs.tag }}
@@ -72,7 +72,7 @@ jobs:
           $asar = Get-ChildItem "$env:RUNNER_TEMP/candidate-app" -Filter app.asar -Recurse | Select-Object -First 1
           if (-not $asar) { throw "Candidate app archive missing" }
           $exe = Get-ChildItem "$env:LOCALAPPDATA/Programs" -Filter 'Ally Finance.exe' -Recurse | Select-Object -First 1
-          node scripts/windows-updater-hop.mjs $exe.FullName "$env:RUNNER_TEMP/ally-before.json" $env:RELEASE_TAG.TrimStart('v') $asar.FullName "$env:RUNNER_TEMP/ally-installer/update.json"
+          node scripts/windows-updater-hop.mjs $exe.FullName "$env:RUNNER_TEMP/ally-before.json" $env:RELEASE_TAG.TrimStart('v') $asar.FullName "$env:RUNNER_TEMP/ally-installer/update.json" 1.0.3
           if ($LASTEXITCODE -ne 0) { throw "Real updater-driven upgrade failed" }
       - name: Install candidate and verify every saved record and credential file
         shell: pwsh
@@ -80,7 +80,7 @@ jobs:
           RELEASE_TAG: ${{ inputs.tag }}
         run: |
           $phase = 'verify'
-          if ('${{ matrix.baseline }}' -eq 'v1.0.2') { $phase = 'verify-after-hop' } else {
+          if ('${{ matrix.baseline }}' -eq 'v1.0.3') { $phase = 'verify-after-hop' } else {
             $installer = Get-ChildItem "$env:RUNNER_TEMP/ally-installer" -Filter *.exe | Select-Object -First 1
             $install = Start-Process $installer.FullName -ArgumentList '/S' -PassThru
             if (-not $install.WaitForExit(120000) -or $install.ExitCode -ne 0) { throw "Candidate install failed" }

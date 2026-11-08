@@ -30,7 +30,8 @@ try{
    store.saveSetting('profile-settings',{importFrom:month+'-01',accounts:{'a1:synthetic-account':{included:true,purpose:'Joint',label:'Saved checking name'}},rules:{'synthetic groceries':{name:'Groceries',group:'Joint',category:'Groceries/Household'}}});
    store.saveSetting('bank-sync',{at:now,results:[{ok:true,connectionId:'a1'}]});store.saveSetting('sheet-sync',{lastSuccess:now});
    store.saveSetting('notification-settings',{enabled:false,weekly:true,sound:false,hideAmounts:true});
-   store.saveSetting('plans',{list:[{id:'original',revision:1,name:'Original setup idea',type:'House',priority:'Fun',costCents:20000,reservedCents:0,status:'idea',targetDate:'',notes:'Original',updatedAt:now}]});
+   store.saveSetting('plan-colors',{list:[{id:'fixture-lavender',name:'Saved custom color',color:'#b69bcc'}]});
+   store.saveSetting('plans',{list:[{id:'original',colorId:'fixture-lavender',sourceKey:'synthetic-source',sourceKeys:['synthetic-source'],components:[{name:'Original component',costCents:20000}],revision:1,name:'Original setup idea',type:'House',priority:'Fun',costCents:20000,reservedCents:0,status:'idea',targetDate:'',notes:'Original',updatedAt:now}]});
    store.close();
    const config={id:'ally',name:'Ally Finance',port:4320,spreadsheetId:'synthetic-sheet',importFrom:month+'-01',groups:['Joint','Personal Baseline','Personal Choices','Income','Unassigned'],categories:['Groceries/Household','Uncategorized'],flows:['Expense','Refund','Income','Transfer','Debt repayment'],institutions:{chase:{id:'ins_56',name:'Chase'},discover:{id:'ins_33',name:'Discover'}},sheets:{'11.Ally':11,'Summary Sheet':2,Planning:3,Sheet13:4},historyLayouts:[],workbook:{months:{[month]:{title:'11.Ally',sheetId:11,ledgerHeaderRow:1,rowCount:1000,ledgerVersion:3}},budgetHeaderRow:30,goalsHeaderRow:25}};
    const credentials={'client-id':'synthetic-client','production-secret':'synthetic-secret','google-service-account':JSON.stringify({client_email:'synthetic@example.invalid'}),'ally-a1-access-production-synthetic-item':'synthetic-access'};
@@ -48,7 +49,7 @@ try{
    }
    for(const [group,label,amount] of [['Joint','Mortgage','1459.00'],['Personal Baseline','Gas','271.19'],['Personal Choices','Eating out','189.23']]){const r=await fetch('/api/budget',{method:'POST',headers,body:JSON.stringify({group,label,month:s.planning.today.slice(0,7),amount,kind:'fixed'})});if(!r.ok)throw Error('Budget save failed');}
   });
-  const state=await page.evaluate(async()=>{const s=await(await fetch('/api/state')).json();return {planning:s.planning,accounts:s.accounts,rows:s.rows};});assert.equal(state.planning.plans.length,41);assert.equal(state.planning.budgets.length,3);assert.equal(state.accounts.length,1);assert.equal(state.rows.length,1);
+  const state=await page.evaluate(async()=>{const s=await(await fetch('/api/state')).json();return {planning:{today:s.planning.today,plans:s.planning.plans.map(({readOnlyOther,readOnlyLegacy,...plan})=>plan),budgets:s.planning.budgets},accounts:s.accounts,rows:s.rows};});assert.equal(state.planning.plans.length,41);assert.equal(state.planning.budgets.length,3);assert.equal(state.accounts.length,1);assert.equal(state.rows.length,1);
   await app.close();app=null;writeFileSync(recordPath,JSON.stringify({userData:fixture.userData,state,...snapshot(fixture.userData)}));
   console.log('POPULATED_PROFILE_READY: 41 plans, 3 budgets, saved preferences, account, transaction, encrypted connection credentials');
  }else if(phase==='verify'||phase==='verify-after-hop'){
@@ -56,7 +57,7 @@ try{
   app=await _electron.launch({executablePath,timeout:60000});const page=await app.firstWindow();await page.waitForURL('http://127.0.0.1:*/**',{timeout:45000});
   assert.equal(await app.evaluate(({app})=>app.getVersion()),version);
   assert.equal(await app.evaluate(({app})=>app.getPath('userData')),before.userData);
-  const after=await page.evaluate(async()=>{const s=await(await fetch('/api/state')).json();return {planning:s.planning,accounts:s.accounts,rows:s.rows};});assert.deepEqual(after,before.state);
+  const after=await page.evaluate(async()=>{const s=await(await fetch('/api/state')).json();return {planning:{today:s.planning.today,plans:s.planning.plans.map(({readOnlyOther,readOnlyLegacy,...plan})=>plan),budgets:s.planning.budgets},accounts:s.accounts,rows:s.rows};});assert.deepEqual(after,before.state);
   await page.getByRole('link',{name:'Settings',exact:true}).click();await page.getByRole('heading',{name:'Notifications',exact:true}).waitFor();
   assert.equal(await page.getByRole('switch',{name:'Enable notifications',exact:true}).isChecked(),false);
   assert.equal(await page.getByRole('switch',{name:'Share technical status',exact:true}).isChecked(),true);
@@ -95,13 +96,54 @@ try{
     }});
     assert.equal(await publisher.flush(),true);assert.equal(received,true);publisher.configure(false);assert.equal(await publisher.flush(),false);
     console.log('NATIVE_MIRROR_OK: encrypted snapshot decrypts, pinned reader identity, protected credentials preserved, independent opt-out');
-    return {nativeEnrollment:true,protectedCredentialPersistence:true,reportPrivacy:true,reportingToggle:true,nativeMirror:true};
+    const {SharedPlanning}=require(path.join(app.getAppPath(),'src/shared-planning.mjs')),{PlanningConnection}=require(path.join(app.getAppPath(),'src/planning-connection.mjs'));
+    const {planningKeyId,openPlanRecord,sealPlanRecord}=require(path.join(app.getAppPath(),'src/planning-crypto.mjs'));
+    const plansStore=new Store(':memory:');
+    try{
+     const stamp=new Date().toISOString(),originalPlan={id:'native-original',revision:7,name:'Private saved household idea',type:'House',priority:'Priority',costCents:0,reservedCents:0,status:'archived',notes:'Existing personal notes',targetDate:'',updatedAt:stamp,sourceKey:'original-sheet-source',components:[{name:'Original component',costCents:0}]};
+     const palette={list:[{id:'saved-color',name:'Saved custom color',color:'#b69bcc'}]},plans={list:[originalPlan]},budget={list:[{id:'saved-budget',group:'Joint',label:'Mortgage',amountCents:145900}]};
+     plansStore.saveSetting('plans',plans);plansStore.saveSetting('plan-colors',palette);plansStore.saveSetting('category-budgets',budget);
+     reopened.set('saved-bank-connection','synthetic-bank-token');
+     const key=crypto.randomBytes(32),keyId=planningKeyId(key),wrappedKey=crypto.publicEncrypt({key:keys.publicKey,oaepHash:'sha256',padding:crypto.constants.RSA_PKCS1_OAEP_PADDING},key).toString('base64');
+     let migrated=false,enrollments=0;const records=new Map(),receipts=new Map();
+     const planningFetch=async(url,options={})=>{
+      const pathname=new URL(url).pathname,body=options.body?JSON.parse(options.body):null;
+      if(pathname==='/api/planning/enroll'){
+       enrollments++;const parts=body.assertion.split('.');assert.equal(crypto.verify('RSA-SHA256',Buffer.from(parts[0]+'.'+parts[1]),keys.publicKey,Buffer.from(parts[2],'base64url')),true);
+       const claim=JSON.parse(Buffer.from(parts[1],'base64url'));assert.equal(claim.purpose,'ally-plans-enroll-v1');assert.equal(claim.role,'windows');assert.equal(claim.aud,endpoint);assert.equal(claim.profile,crypto.createHash('sha256').update('native-planning-profile').digest('hex'));
+       return Response.json({token:'b'.repeat(64)});
+      }
+      assert.equal(options.headers.Authorization,'Bearer '+'b'.repeat(64));
+      if(pathname==='/api/planning/bootstrap')return Response.json({wrappedKey,keyId,migrated});
+      if(pathname==='/api/planning/migration'){migrated=true;return Response.json({ok:true});}
+      assert.equal(pathname,'/api/planning/records');
+      if(!body)return Response.json({records:[...records.values()].sort((a,b)=>a.id.localeCompare(b.id)),after:null,migrated});
+      assert.equal(options.body.includes('Private saved household idea'),false);assert.equal(options.body.includes('Existing personal notes'),false);
+      if(receipts.has(body.operationId))return Response.json(receipts.get(body.operationId));
+      const previous=records.get(body.record.id);assert.equal(body.expectedRevision,previous?.revision||0);assert.equal(body.record.revision,body.expectedRevision+1);
+      const decoded=openPlanRecord(body.record,key);assert.equal(body.record.owner,previous?.owner||'windows');
+      if(body.record.id==='plan:native-original')assert.deepEqual(decoded,originalPlan);
+      records.set(body.record.id,body.record);const receipt={revision:body.record.revision};receipts.set(body.operationId,receipt);return Response.json(receipt);
+     };
+     const client=new SharedPlanning(plansStore,new PlanningConnection(reopened,{endpoint,profile:'native-planning-profile',role:'windows',fetcher:planningFetch}),{role:'windows'});client.schedule=()=>{};
+     assert.equal((await client.sync()).error,null);assert.equal(migrated,true);assert.equal(enrollments,1);assert.deepEqual(plansStore.setting('plans'),plans);assert.deepEqual(plansStore.setting('plan-colors'),palette);assert.deepEqual(plansStore.setting('category-budgets'),budget);
+     assert.deepEqual(plansStore.setting('shared-planning-originals').plans,plans);assert.equal(records.size,2);
+     const macPlan={...originalPlan,id:'native-mac-plan',name:'Tom idea',status:'idea',costCents:12345,notes:'Tom notes'};
+     records.set('plan:'+macPlan.id,sealPlanRecord({id:'plan:'+macPlan.id,kind:'plan',revision:1,deleted:false,owner:'mac',data:macPlan},key));
+     assert.equal((await client.sync()).error,null);const received=plansStore.setting('plans').list.find(p=>p.id===macPlan.id);assert.ok(received);
+     client.savePlan({...received,cost:'123.45',reserved:'0',notes:'Ally added a note'});assert.equal((await client.sync()).error,null);
+     assert.equal(records.get('plan:'+macPlan.id).owner,'mac');assert.equal(openPlanRecord(records.get('plan:'+macPlan.id),key).notes,'Ally added a note');
+     const again=new DesktopVault(vaultPath,safeStorage);assert.equal(again.get('saved-bank-connection'),'synthetic-bank-token');assert.ok(again.get('google-service-account'));assert.ok(again.get('status-report-auth'));assert.ok(again.get('planning-auth'));
+     const protectedBytes=fs.readFileSync(vaultPath);for(const value of ['synthetic-bank-token','b'.repeat(64),'PRIVATE KEY'])assert.equal(protectedBytes.includes(Buffer.from(value)),false);
+     console.log('NATIVE_SHARED_PLANNING_OK: purpose-bound enrollment, native key wrapping, encrypted records, preserved legacy plans and budgets, protected credentials, Ally edits Tom notes');
+    }finally{plansStore.close();}
+    return {nativeEnrollment:true,protectedCredentialPersistence:true,reportPrivacy:true,reportingToggle:true,nativeMirror:true,nativeSharedPlanning:true};
    }finally{store.close();fs.rmSync(dir,{recursive:true,force:true});}
-  },version);assert.deepEqual(nativeReporting,{nativeEnrollment:true,protectedCredentialPersistence:true,reportPrivacy:true,reportingToggle:true,nativeMirror:true});console.log('NATIVE_MIRROR_OK: encrypted snapshot decrypts on Windows; reader identity, protected credentials and opt-out verified');console.log('NATIVE_REPORTING_OK: installed code, Windows credential protection, enrollment signatures, private reports, persistent connection and opt-out');
+  },version);assert.deepEqual(nativeReporting,{nativeEnrollment:true,protectedCredentialPersistence:true,reportPrivacy:true,reportingToggle:true,nativeMirror:true,nativeSharedPlanning:true});console.log('NATIVE_MIRROR_OK: encrypted snapshot decrypts on Windows; reader identity, protected credentials and opt-out verified');console.log('NATIVE_REPORTING_OK: installed code, Windows credential protection, enrollment signatures, private reports, persistent connection and opt-out');
   await app.close();app=null;
   const saved=snapshot(before.userData),report=saved.tables.app_state.find(row=>row.key==='status-reporting');assert.ok(report);assert.equal(JSON.parse(report.payload).installedVersion,version);assert.equal(JSON.parse(report.payload).backupState,'verified');
-  // Reporting may add its own setting. Every pre-existing setting and financial record must match exactly.
-  const withoutReporting=tables=>({...tables,app_state:tables.app_state.filter(row=>!['status-reporting','mirror-publisher'].includes(row.key))});
+  // Sync services may add their metadata. Every pre-existing user setting and financial record must match exactly.
+  const withoutReporting=tables=>({...tables,app_state:tables.app_state.filter(row=>!['status-reporting','mirror-publisher','shared-planning','shared-planning-originals'].includes(row.key))});
   assert.deepEqual(withoutReporting(saved.tables),withoutReporting(before.tables));for(const f of ['credentials.bin','profile.json','ready'])assert.equal(saved.files[f],before.files[f]);
   const backupDir=join(before.userData,'backups','before-'+version);assert.ok(existsSync(join(backupDir,'manifest.json')));const manifest=JSON.parse(readFileSync(join(backupDir,'manifest.json')));
   for(const [file,digest] of Object.entries(manifest.files))assert.equal(hash(join(backupDir,file)),digest);
