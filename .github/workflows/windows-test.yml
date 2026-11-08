@@ -4,7 +4,7 @@ on:
     inputs:
       tag:
         required: true
-        default: v1.0.2
+        default: v1.0.3
         type: string
 permissions:
   contents: read
@@ -14,9 +14,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        baseline: [v1.0.0, v1.0.1]
+        baseline: [v1.0.0, v1.0.1, v1.0.2]
     runs-on: windows-latest
-    timeout-minutes: 12
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -33,7 +33,7 @@ jobs:
           RELEASE_TAG: ${{ inputs.tag }}
           BASELINE_TAG: ${{ matrix.baseline }}
         run: |
-          gh release download $env:RELEASE_TAG --repo $env:GITHUB_REPOSITORY --pattern '*.exe' --dir "$env:RUNNER_TEMP/ally-installer"
+          gh release download $env:RELEASE_TAG --repo $env:GITHUB_REPOSITORY --pattern '*.exe' --pattern update.json --dir "$env:RUNNER_TEMP/ally-installer"
           if ($LASTEXITCODE -ne 0) { throw "Download failed" }
           gh release download $env:BASELINE_TAG --repo $env:GITHUB_REPOSITORY --pattern '*.exe' --dir "$env:RUNNER_TEMP/ally-previous"
           if ($LASTEXITCODE -ne 0) { throw "Baseline download failed" }
@@ -46,14 +46,37 @@ jobs:
           $exe = Get-ChildItem "$env:LOCALAPPDATA/Programs" -Filter 'Ally Finance.exe' -Recurse | Select-Object -First 1
           node scripts/windows-upgrade-profile.mjs seed $exe.FullName "$env:RUNNER_TEMP/ally-before.json"
           if ($LASTEXITCODE -ne 0) { throw "Populated profile setup failed" }
-      - name: Install candidate and verify every saved record and credential file
+      - name: Exercise real updater download, installer and automatic reopen
+        if: matrix.baseline == 'v1.0.2'
         shell: pwsh
         env:
           RELEASE_TAG: ${{ inputs.tag }}
         run: |
           $installer = Get-ChildItem "$env:RUNNER_TEMP/ally-installer" -Filter *.exe | Select-Object -First 1
-          $install = Start-Process $installer.FullName -ArgumentList '/S' -PassThru
-          if (-not $install.WaitForExit(120000) -or $install.ExitCode -ne 0) { throw "Candidate install failed" }
+          $seven = "$env:ProgramFiles/7-Zip/7z.exe"
+          $unpack = "$env:RUNNER_TEMP/candidate-extract"
+          & $seven x $installer.FullName "-o$unpack" -y -bso0 -bsp0
+          if ($LASTEXITCODE -ne 0) { throw "Installer extraction failed" }
+          $archive = Get-ChildItem $unpack -Filter 'app-64.7z' -Recurse | Select-Object -First 1
+          if (-not $archive) { throw "Candidate payload archive missing" }
+          & $seven x $archive.FullName "-o$env:RUNNER_TEMP/candidate-app" -y -bso0 -bsp0
+          if ($LASTEXITCODE -ne 0) { throw "Candidate payload extraction failed" }
+          $asar = Get-ChildItem "$env:RUNNER_TEMP/candidate-app" -Filter app.asar -Recurse | Select-Object -First 1
+          if (-not $asar) { throw "Candidate app archive missing" }
           $exe = Get-ChildItem "$env:LOCALAPPDATA/Programs" -Filter 'Ally Finance.exe' -Recurse | Select-Object -First 1
-          node scripts/windows-upgrade-profile.mjs verify $exe.FullName "$env:RUNNER_TEMP/ally-before.json" $env:RELEASE_TAG.TrimStart('v')
+          node scripts/windows-updater-hop.mjs $exe.FullName "$env:RUNNER_TEMP/ally-before.json" $env:RELEASE_TAG.TrimStart('v') $asar.FullName "$env:RUNNER_TEMP/ally-installer/update.json"
+          if ($LASTEXITCODE -ne 0) { throw "Real updater-driven upgrade failed" }
+      - name: Install candidate and verify every saved record and credential file
+        shell: pwsh
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          $phase = 'verify'
+          if ('${{ matrix.baseline }}' -eq 'v1.0.2') { $phase = 'verify-after-hop' } else {
+            $installer = Get-ChildItem "$env:RUNNER_TEMP/ally-installer" -Filter *.exe | Select-Object -First 1
+            $install = Start-Process $installer.FullName -ArgumentList '/S' -PassThru
+            if (-not $install.WaitForExit(120000) -or $install.ExitCode -ne 0) { throw "Candidate install failed" }
+          }
+          $exe = Get-ChildItem "$env:LOCALAPPDATA/Programs" -Filter 'Ally Finance.exe' -Recurse | Select-Object -First 1
+          node scripts/windows-upgrade-profile.mjs $phase $exe.FullName "$env:RUNNER_TEMP/ally-before.json" $env:RELEASE_TAG.TrimStart('v')
           if ($LASTEXITCODE -ne 0) { throw "Populated profile upgrade failed" }

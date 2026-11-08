@@ -51,8 +51,8 @@ try{
   const state=await page.evaluate(async()=>{const s=await(await fetch('/api/state')).json();return {planning:s.planning,accounts:s.accounts,rows:s.rows};});assert.equal(state.planning.plans.length,41);assert.equal(state.planning.budgets.length,3);assert.equal(state.accounts.length,1);assert.equal(state.rows.length,1);
   await app.close();app=null;writeFileSync(recordPath,JSON.stringify({userData:fixture.userData,state,...snapshot(fixture.userData)}));
   console.log('POPULATED_PROFILE_READY: 41 plans, 3 budgets, saved preferences, account, transaction, encrypted connection credentials');
- }else if(phase==='verify'){
-  const before=JSON.parse(readFileSync(recordPath));assert.deepEqual(snapshot(before.userData),{tables:before.tables,files:before.files},'Installer changed user data before launch');
+ }else if(phase==='verify'||phase==='verify-after-hop'){
+  const before=JSON.parse(readFileSync(recordPath));if(phase==='verify')assert.deepEqual(snapshot(before.userData),{tables:before.tables,files:before.files},'Installer changed user data before launch');else for(const f of ['credentials.bin','profile.json','ready'])assert.equal(snapshot(before.userData).files[f],before.files[f]);
   app=await _electron.launch({executablePath,timeout:60000});const page=await app.firstWindow();await page.waitForURL('http://127.0.0.1:*/**',{timeout:45000});
   assert.equal(await app.evaluate(({app})=>app.getVersion()),version);
   assert.equal(await app.evaluate(({app})=>app.getPath('userData')),before.userData);
@@ -61,7 +61,7 @@ try{
   assert.equal(await page.getByRole('switch',{name:'Enable notifications',exact:true}).isChecked(),false);
   assert.equal(await page.getByRole('switch',{name:'Share technical status',exact:true}).isChecked(),true);
   assert.equal(await page.getByRole('link',{name:'App status',exact:true}).isVisible(),false);
-  const desktop=await page.evaluate(()=>window.allyDesktop.info());assert.equal(desktop.reporting.configured,true);assert.equal(desktop.reporting.enabled,true);
+  const desktop=await page.evaluate(()=>window.allyDesktop.info());assert.equal(desktop.reporting.configured,true);assert.equal(desktop.reporting.enabled,true);assert.equal(desktop.mirrorPublishing.enabled,true);assert.equal(await page.getByRole('switch',{name:'Share a read-only copy',exact:true}).isChecked(),true);
   const nativeReporting=await app.evaluate(async({app,safeStorage},candidateVersion)=>{
    const require=process.getBuiltinModule('node:module').createRequire(process.getBuiltinModule('node:path').join(app.getAppPath(),'package.json'));
    const fs=require('node:fs'),path=require('node:path'),crypto=require('node:crypto'),assert=require('node:assert/strict');
@@ -85,17 +85,27 @@ try{
     const reopened=new DesktopVault(vaultPath,safeStorage);assert.ok(reopened.get('status-report-auth'));assert.equal(fs.readFileSync(vaultPath).includes(Buffer.from('native-report-fixture')),false);
     assert.equal(await new StatusReporter(store,reopened,{endpoint,version:candidateVersion,fetcher}).flush(),true);assert.equal(requests.filter(url=>url.endsWith('/api/enroll')).length,1);
     reporter.configure(false);const count=requests.length;assert.equal(await reporter.flush(),false);assert.equal(requests.length,count);assert.equal(store.setting('plans').list[0].name,'Private plan');
+    const {MirrorPublisher}=require(path.join(app.getAppPath(),'src/mirror-publisher.mjs')),{openMirror}=require(path.join(app.getAppPath(),'src/mirror-crypto.mjs'));
+    const reader=crypto.generateKeyPairSync('rsa',{modulusLength:2048}),publicKey=reader.publicKey.export({type:'spki',format:'pem'}),privateKey=reader.privateKey.export({type:'pkcs8',format:'pem'});
+    const finance={store,snapshot:()=>({profile:'Synthetic',spreadsheetId:'synthetic-sheet',rows:[],accounts:[],connections:[],groups:[],categories:[],history:{months:[]},bankSync:{},sheetSync:{}})};
+    let received=false;const publisher=new MirrorPublisher(finance,reopened,reporter,{publicKey,fetcher:async(url,options)=>{
+     assert.equal(url,endpoint+'/api/mirror');assert.equal(options.headers.Authorization,'Bearer '+'a'.repeat(64));
+     assert.equal(options.body.includes('Private plan'),false);const envelope=JSON.parse(options.body),connection=JSON.parse(reopened.get('status-report-auth'));
+     const payload=openMirror(envelope,{privateKey,publicKey,signer:keys.publicKey,installation:connection.installation});assert.equal(payload.state.planning.plans[0].name,'Private plan');received=true;return Response.json({ok:true});
+    }});
+    assert.equal(await publisher.flush(),true);assert.equal(received,true);publisher.configure(false);assert.equal(await publisher.flush(),false);
+    console.log('NATIVE_MIRROR_OK: encrypted snapshot decrypts, pinned reader identity, protected credentials preserved, independent opt-out');
     return {nativeEnrollment:true,protectedCredentialPersistence:true,reportPrivacy:true,reportingToggle:true};
    }finally{store.close();fs.rmSync(dir,{recursive:true,force:true});}
   },version);assert.deepEqual(nativeReporting,{nativeEnrollment:true,protectedCredentialPersistence:true,reportPrivacy:true,reportingToggle:true});console.log('NATIVE_REPORTING_OK: installed code, Windows credential protection, enrollment signatures, private reports, persistent connection and opt-out');
   await app.close();app=null;
   const saved=snapshot(before.userData),report=saved.tables.app_state.find(row=>row.key==='status-reporting');assert.ok(report);assert.equal(JSON.parse(report.payload).installedVersion,version);assert.equal(JSON.parse(report.payload).backupState,'verified');
   // Reporting may add its own setting. Every pre-existing setting and financial record must match exactly.
-  const withoutReporting=tables=>({...tables,app_state:tables.app_state.filter(row=>row.key!=='status-reporting')});
+  const withoutReporting=tables=>({...tables,app_state:tables.app_state.filter(row=>!['status-reporting','mirror-publisher'].includes(row.key))});
   assert.deepEqual(withoutReporting(saved.tables),withoutReporting(before.tables));for(const f of ['credentials.bin','profile.json','ready'])assert.equal(saved.files[f],before.files[f]);
   const backupDir=join(before.userData,'backups','before-'+version);assert.ok(existsSync(join(backupDir,'manifest.json')));const manifest=JSON.parse(readFileSync(join(backupDir,'manifest.json')));
   for(const [file,digest] of Object.entries(manifest.files))assert.equal(hash(join(backupDir,file)),digest);
-  assert.deepEqual(snapshot(backupDir).tables,before.tables);
+  assert.deepEqual(withoutReporting(snapshot(backupDir).tables),withoutReporting(before.tables));
   console.log('POPULATED_UPGRADE_OK: all saved records and protected connection files preserved; startup backup verified');
  }else throw Error('Choose seed or verify.');
 }finally{if(app)await app.close();}
