@@ -95,9 +95,9 @@ try{
     }});
     assert.equal(await publisher.flush(),true);assert.equal(received,true);publisher.configure(false);assert.equal(await publisher.flush(),false);
     console.log('NATIVE_MIRROR_OK: encrypted snapshot decrypts, pinned reader identity, protected credentials preserved, independent opt-out');
-    return {nativeEnrollment:true,protectedCredentialPersistence:true,reportPrivacy:true,reportingToggle:true};
+    return {nativeEnrollment:true,protectedCredentialPersistence:true,reportPrivacy:true,reportingToggle:true,nativeMirror:true};
    }finally{store.close();fs.rmSync(dir,{recursive:true,force:true});}
-  },version);assert.deepEqual(nativeReporting,{nativeEnrollment:true,protectedCredentialPersistence:true,reportPrivacy:true,reportingToggle:true});console.log('NATIVE_REPORTING_OK: installed code, Windows credential protection, enrollment signatures, private reports, persistent connection and opt-out');
+  },version);assert.deepEqual(nativeReporting,{nativeEnrollment:true,protectedCredentialPersistence:true,reportPrivacy:true,reportingToggle:true,nativeMirror:true});console.log('NATIVE_MIRROR_OK: encrypted snapshot decrypts on Windows; reader identity, protected credentials and opt-out verified');console.log('NATIVE_REPORTING_OK: installed code, Windows credential protection, enrollment signatures, private reports, persistent connection and opt-out');
   await app.close();app=null;
   const saved=snapshot(before.userData),report=saved.tables.app_state.find(row=>row.key==='status-reporting');assert.ok(report);assert.equal(JSON.parse(report.payload).installedVersion,version);assert.equal(JSON.parse(report.payload).backupState,'verified');
   // Reporting may add its own setting. Every pre-existing setting and financial record must match exactly.
