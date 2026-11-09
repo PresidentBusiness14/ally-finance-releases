@@ -1,6 +1,7 @@
 // Run only on a disposable Windows CI runner. All data and credentials are fake.
 import {_electron} from 'playwright';
 import {verifyAdvancedUI} from './windows-advanced-ui.mjs';
+import {verifyUpdateBadges} from './windows-update-ui.mjs';
 import assert from 'node:assert/strict';
 import {readFileSync,writeFileSync,existsSync} from 'node:fs';
 import {join} from 'node:path';
@@ -150,6 +151,6 @@ try{
   for(const [file,digest] of Object.entries(manifest.files))assert.equal(hash(join(backupDir,file)),digest);
   assert.deepEqual(withoutReporting(snapshot(backupDir).tables),withoutReporting(before.tables));
   console.log('POPULATED_UPGRADE_OK: all saved records and protected connection files preserved; startup backup verified');
-  app=await _electron.launch({executablePath,timeout:60000});const advancedPage=await app.firstWindow();await advancedPage.waitForURL('http://127.0.0.1:*/**',{timeout:45000});await verifyAdvancedUI(app,advancedPage);await app.close();app=null;
+  app=await _electron.launch({executablePath,timeout:60000});const advancedPage=await app.firstWindow();await advancedPage.waitForURL('http://127.0.0.1:*/**',{timeout:45000});await verifyUpdateBadges(app,advancedPage);await verifyAdvancedUI(app,advancedPage);await app.close();app=null;
  }else throw Error('Choose seed or verify.');
 }finally{if(app)await app.close();}
