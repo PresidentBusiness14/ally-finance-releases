@@ -1,5 +1,6 @@
 // Run only on a disposable Windows CI runner. All data and credentials are fake.
 import {_electron} from 'playwright';
+import {verifyAdvancedUI} from './windows-advanced-ui.mjs';
 import assert from 'node:assert/strict';
 import {readFileSync,writeFileSync,existsSync} from 'node:fs';
 import {join} from 'node:path';
@@ -31,7 +32,7 @@ try{
    store.saveSetting('bank-sync',{at:now,results:[{ok:true,connectionId:'a1'}]});store.saveSetting('sheet-sync',{lastSuccess:now});
    store.saveSetting('notification-settings',{enabled:false,weekly:true,sound:false,hideAmounts:true});
    store.saveSetting('plan-colors',{list:[{id:'fixture-lavender',name:'Saved custom color',color:'#b69bcc'}]});
-   store.saveSetting('plans',{list:[{id:'original',colorId:'fixture-lavender',sourceKey:'synthetic-source',sourceKeys:['synthetic-source'],components:[{name:'Original component',costCents:20000}],revision:1,name:'Original setup idea',type:'House',priority:'Fun',costCents:20000,reservedCents:0,status:'idea',targetDate:'',notes:'Original',updatedAt:now}]});
+   store.saveSetting('plans',{list:[{id:'original',advanced:{enabled:true,stage:'initial',tasks:[{id:'saved-task',title:'Original saved task',done:false,deadline:'2027-06-01',visibleStage:'initial',advanceTo:'in-progress'}],costItems:[{id:'saved-cost',name:'Original cost line',costCents:12345}]},notesDelta:{ops:[{insert:'Original\n',attributes:{bold:true}}]},colorId:'fixture-lavender',sourceKey:'synthetic-source',sourceKeys:['synthetic-source'],components:[{name:'Original component',costCents:20000}],revision:1,name:'Original setup idea',type:'House',priority:'Fun',costCents:20000,reservedCents:0,status:'idea',targetDate:'',notes:'Original',updatedAt:now}]});
    store.close();
    const config={id:'ally',name:'Ally Finance',port:4320,spreadsheetId:'synthetic-sheet',importFrom:month+'-01',groups:['Joint','Personal Baseline','Personal Choices','Income','Unassigned'],categories:['Groceries/Household','Uncategorized'],flows:['Expense','Refund','Income','Transfer','Debt repayment'],institutions:{chase:{id:'ins_56',name:'Chase'},discover:{id:'ins_33',name:'Discover'}},sheets:{'11.Ally':11,'Summary Sheet':2,Planning:3,Sheet13:4},historyLayouts:[],workbook:{months:{[month]:{title:'11.Ally',sheetId:11,ledgerHeaderRow:1,rowCount:1000,ledgerVersion:3}},budgetHeaderRow:30,goalsHeaderRow:25}};
    const credentials={'client-id':'synthetic-client','production-secret':'synthetic-secret','google-service-account':JSON.stringify({client_email:'synthetic@example.invalid'}),'ally-a1-access-production-synthetic-item':'synthetic-access'};
@@ -100,7 +101,7 @@ try{
     const {planningKeyId,openPlanRecord,sealPlanRecord}=require(path.join(app.getAppPath(),'src/planning-crypto.mjs'));
     const plansStore=new Store(':memory:');
     try{
-     const stamp=new Date().toISOString(),originalPlan={id:'native-original',revision:7,name:'Private saved household idea',type:'House',priority:'Priority',costCents:0,reservedCents:0,status:'archived',notes:'Existing personal notes',targetDate:'',updatedAt:stamp,sourceKey:'original-sheet-source',components:[{name:'Original component',costCents:0}]};
+     const stamp=new Date().toISOString(),originalPlan={id:'native-original',revision:7,name:'Private saved household idea',type:'House',priority:'Priority',costCents:0,reservedCents:0,status:'archived',notes:'Existing personal notes',targetDate:'',updatedAt:stamp,sourceKey:'original-sheet-source',advanced:{enabled:true,stage:'final-phase',tasks:[{id:'native-task',title:'Original archived task',done:true,deadline:'',visibleStage:'initial',advanceTo:'in-progress'}],costItems:[{id:'native-cost',name:'Original cost item',costCents:12345}]},notesDelta:{ops:[{insert:'Existing personal notes\n',attributes:{bold:true}}]},components:[{name:'Original component',costCents:0}]};
      const palette={list:[{id:'saved-color',name:'Saved custom color',color:'#b69bcc'}]},plans={list:[originalPlan]},budget={list:[{id:'saved-budget',group:'Joint',label:'Mortgage',amountCents:145900}]};
      plansStore.saveSetting('plans',plans);plansStore.saveSetting('plan-colors',palette);plansStore.saveSetting('category-budgets',budget);
      reopened.set('saved-bank-connection','synthetic-bank-token');
@@ -139,7 +140,7 @@ try{
     }finally{plansStore.close();}
     return {nativeEnrollment:true,protectedCredentialPersistence:true,reportPrivacy:true,reportingToggle:true,nativeMirror:true,nativeSharedPlanning:true};
    }finally{store.close();fs.rmSync(dir,{recursive:true,force:true});}
-  },version);assert.deepEqual(nativeReporting,{nativeEnrollment:true,protectedCredentialPersistence:true,reportPrivacy:true,reportingToggle:true,nativeMirror:true,nativeSharedPlanning:true});console.log('NATIVE_MIRROR_OK: encrypted snapshot decrypts on Windows; reader identity, protected credentials and opt-out verified');console.log('NATIVE_REPORTING_OK: installed code, Windows credential protection, enrollment signatures, private reports, persistent connection and opt-out');
+  },version);assert.deepEqual(nativeReporting,{nativeEnrollment:true,protectedCredentialPersistence:true,reportPrivacy:true,reportingToggle:true,nativeMirror:true,nativeSharedPlanning:true});console.log('NATIVE_MIRROR_OK: encrypted snapshot decrypts on Windows; reader identity, protected credentials and opt-out verified');console.log('NATIVE_SHARED_PLANNING_OK: installed encryption, advanced fields, rich notes and protected credential merge verified');console.log('NATIVE_REPORTING_OK: installed code, Windows credential protection, enrollment signatures, private reports, persistent connection and opt-out');
   await app.close();app=null;
   const saved=snapshot(before.userData),report=saved.tables.app_state.find(row=>row.key==='status-reporting');assert.ok(report);assert.equal(JSON.parse(report.payload).installedVersion,version);assert.equal(JSON.parse(report.payload).backupState,'verified');
   // Sync services may add their metadata. Every pre-existing user setting and financial record must match exactly.
@@ -149,5 +150,6 @@ try{
   for(const [file,digest] of Object.entries(manifest.files))assert.equal(hash(join(backupDir,file)),digest);
   assert.deepEqual(withoutReporting(snapshot(backupDir).tables),withoutReporting(before.tables));
   console.log('POPULATED_UPGRADE_OK: all saved records and protected connection files preserved; startup backup verified');
+  app=await _electron.launch({executablePath,timeout:60000});const advancedPage=await app.firstWindow();await advancedPage.waitForURL('http://127.0.0.1:*/**',{timeout:45000});await verifyAdvancedUI(app,advancedPage);await app.close();app=null;
  }else throw Error('Choose seed or verify.');
 }finally{if(app)await app.close();}
