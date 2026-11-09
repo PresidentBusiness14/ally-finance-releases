@@ -33,7 +33,7 @@ trace('candidate-main-loading');import(pathToFileURL(path.join(__dirname,'../pro
 const digest=path=>createHash('sha256').update(readFileSync(path)).digest('hex');
 function snapshot(){const db=new DatabaseSync(join(profile,'explorer.sqlite'),{readOnly:true});try{return {tables:Object.fromEntries(['app_state','items','accounts','transactions','runs','balance_history'].map(table=>[table,JSON.parse(JSON.stringify(db.prepare('SELECT * FROM '+table+' ORDER BY rowid').all()))])),files:Object.fromEntries(['credentials.bin','profile.json','ready'].map(file=>[file,digest(join(profile,file))]))};}finally{db.close();}}
 const comparable=s=>({...s,tables:{...s.tables,app_state:s.tables.app_state.filter(r=>!['status-reporting','mirror-publisher','shared-planning','shared-planning-originals'].includes(r.key))}}),original=comparable(snapshot()),manifest=JSON.parse(readFileSync(manifestPath)),release=JSON.parse(Buffer.from(manifest.payload,'base64')),sourceVersion=version.split('.').map(Number);sourceVersion[2]--;
-const stopInstalled=()=>execFileSync('powershell.exe',['-NoLogo','-NoProfile','-NonInteractive','-Command',"Get-Process -Name 'Ally Finance' -ErrorAction SilentlyContinue | Stop-Process -Force"],{encoding:'utf8'});
+const stopInstalled=()=>execFileSync('powershell.exe',['-NoLogo','-NoProfile','-NonInteractive','-Command',"$tasks = @(Get-Process -Name 'Ally Finance' -ErrorAction SilentlyContinue); if ($tasks.Count -gt 0) { $tasks | Stop-Process -Force -ErrorAction Stop }; exit 0"],{encoding:'utf8'});
 const sleep=ms=>new Promise(r=>setTimeout(r,ms)),results=[];let app;
 try{
  for(const mode of ['backup-failure','corrupt-cache','online','offline-cache']){
@@ -43,7 +43,7 @@ try{
   else rmSync(join(profile,'updates','verified-release.json'),{force:true});
   const initialInstallState=existsSync(stateFile)?readFileSync(stateFile,'utf8'):null;
   writeFileSync(configPath,JSON.stringify({mode,sourceVersion:sourceVersion.join('.'),installedExe,profile,manifest:manifestPath,installer:installerPath,trace:tracePath}));
-  app=await _electron.launch({executablePath:cloneExe,timeout:60000});const page=await app.firstWindow();
+  app=await _electron.launch({executablePath:cloneExe,timeout:60000});app.process().stderr.on('data',chunk=>process.stderr.write(chunk));const page=await app.firstWindow();
   if(mode==='backup-failure'||mode==='corrupt-cache'){
    await page.waitForURL('http://127.0.0.1:*/**',{timeout:60000});await page.locator('#content[aria-busy="false"]').waitFor();const info=await page.evaluate(()=>window.allyDesktop.info());
    assert.equal(info.update.phase,mode==='backup-failure'?'ready':'error');if(mode==='backup-failure'){assert.ok(info.update.error);assert.equal(await page.locator('#app-update-indicator').isVisible(),true);}
@@ -61,4 +61,4 @@ try{
   app=null;stopInstalled();assert.deepEqual(comparable(snapshot()),original);results.push({mode,realSignedInstaller:true,automaticReopen:true,noEarlyStoreOrSync:true,progressOnly:true,recordsPreserved:true});console.log('NATIVE_COLD_START_INSTALL_OK: '+mode+' signed installer, no early Store, visible reopen, matching acknowledgement, records preserved');
  }
  writeFileSync(recordPath+'.cold-start.json',JSON.stringify({version,results,unmodifiedCandidateMain:true,testOnlyVersionAndTransportAdapters:true},null,2));
-}finally{if(app)try{await app.close();}catch{}stopInstalled();}
+}catch(error){if(existsSync(tracePath))console.error('COLD_START_EVENTS',readFileSync(tracePath,'utf8'));throw error;}finally{if(app)try{await app.close();}catch{}stopInstalled();}
