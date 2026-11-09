@@ -13,6 +13,12 @@ on:
         type: choice
         options:
           - all
+          - v1.0.0
+          - v1.0.1
+          - v1.0.2
+          - v1.0.3
+          - v1.0.4
+          - v1.0.5
           - v1.0.6
 permissions:
   contents: read
@@ -22,7 +28,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        baseline: ${{ fromJSON(inputs.baseline == 'v1.0.6' && '["v1.0.6"]' || '["v1.0.0", "v1.0.1", "v1.0.2", "v1.0.3", "v1.0.4", "v1.0.5", "v1.0.6"]') }}
+        baseline: ${{ fromJSON(inputs.baseline == 'all' && '["v1.0.0", "v1.0.1", "v1.0.2", "v1.0.3", "v1.0.4", "v1.0.5", "v1.0.6"]' || format('["{0}"]', inputs.baseline)) }}
     runs-on: windows-latest
     timeout-minutes: 15
     steps:
