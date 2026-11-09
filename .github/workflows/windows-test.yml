@@ -99,3 +99,9 @@ jobs:
           $installer = Get-ChildItem "$env:RUNNER_TEMP/ally-installer" -Filter *.exe | Select-Object -First 1
           node scripts/windows-cold-start.mjs $exe.FullName "$env:RUNNER_TEMP/ally-before.json" $env:RELEASE_TAG.TrimStart('v') $asar.FullName "$env:RUNNER_TEMP/ally-installer/update.json" $installer.FullName
           if ($LASTEXITCODE -ne 0) { throw "Cold-start update verification failed" }
+      - name: Report synthetic startup diagnostics
+        if: always() && matrix.baseline == 'v1.0.5'
+        shell: pwsh
+        run: |
+          $trace = "$env:RUNNER_TEMP/ally-cold-start/events.json"
+          if (Test-Path $trace) { Get-Content $trace }

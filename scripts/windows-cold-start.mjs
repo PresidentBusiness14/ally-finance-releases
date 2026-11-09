@@ -14,13 +14,14 @@ mkdirSync(root,{recursive:true});cpSync(dirname(dirname(candidateArchive)),runti
 const configPath=join(root,'config.json'),tracePath=join(root,'events.json'),wrapper=join(resources,'app','index.cjs'),cloneExe=join(runtime,'Ally Finance.exe');
 writeFileSync(join(resources,'app','package.json'),JSON.stringify({name:'ally-finance',productName:'Ally Finance',version,main:'index.cjs'}));
 writeFileSync(wrapper,`
-const fs=require('node:fs'),path=require('node:path'),{app}=require('electron'),sqlite=require('node:sqlite'),{syncBuiltinESMExports}=require('node:module'),{pathToFileURL}=require('node:url');
+const fs=require('node:fs'),path=require('node:path'),{app,dialog}=require('electron'),sqlite=require('node:sqlite'),{syncBuiltinESMExports}=require('node:module'),{pathToFileURL}=require('node:url');
 const config=JSON.parse(fs.readFileSync(path.resolve(__dirname,'../../../config.json'))),events=[];
 const trace=(event,extra={})=>{events.push({event,...extra});fs.writeFileSync(config.trace,JSON.stringify(events));};
+dialog.showErrorBox=(title,message)=>trace('startup-error',{message});
 if(!app.isPackaged)throw Error('Expected packaged runtime');
 app.setPath('userData',config.profile);app.getVersion=()=>config.sourceVersion;process.execPath=config.installedExe;
 const OriginalDB=sqlite.DatabaseSync,originalBackup=sqlite.backup;let failBackup=config.mode==='backup-failure';
-sqlite.DatabaseSync=class extends OriginalDB{constructor(file,options){if(path.resolve(String(file)).toLowerCase()===path.join(config.profile,'explorer.sqlite').toLowerCase())trace(options?.readOnly?'readonly-database':'writable-database');super(file,options);}};
+sqlite.DatabaseSync=class extends OriginalDB{constructor(file,options){if(path.resolve(String(file)).toLowerCase()===path.join(config.profile,'explorer.sqlite').toLowerCase())trace(options?.readOnly?'readonly-database':'writable-database');super(file,options??{});}};
 sqlite.backup=async(...args)=>{if(failBackup){failBackup=false;trace('backup-rejected');throw Error('Synthetic backup failure');}trace('verified-backup-started');return originalBackup(...args);};syncBuiltinESMExports();
 const envelope=JSON.parse(fs.readFileSync(config.manifest)),release=JSON.parse(Buffer.from(envelope.payload,'base64'));
 global.fetch=async(url,options={})=>{
@@ -37,19 +38,20 @@ const stopInstalled=()=>execFileSync('powershell.exe',['-NoLogo','-NoProfile','-
 const sleep=ms=>new Promise(r=>setTimeout(r,ms)),results=[];let app;
 try{
  for(const mode of ['backup-failure','corrupt-cache','online','offline-cache']){
+  console.log('NATIVE_COLD_START_BEGIN: '+mode);
   stopInstalled();rmSync(tracePath,{force:true});mkdirSync(join(profile,'updates'),{recursive:true});
   if(mode==='corrupt-cache')writeFileSync(join(profile,'updates','verified-release.json'),JSON.stringify({payload:'forged',signature:'invalid'}));
   else if(mode==='offline-cache'){cpSync(installerPath,join(profile,'updates',`Ally-Finance-Setup-${version}.exe`));writeFileSync(join(profile,'updates','verified-release.json'),JSON.stringify(manifest));}
   else rmSync(join(profile,'updates','verified-release.json'),{force:true});
   const initialInstallState=existsSync(stateFile)?readFileSync(stateFile,'utf8'):null;
   writeFileSync(configPath,JSON.stringify({mode,sourceVersion:sourceVersion.join('.'),installedExe,profile,manifest:manifestPath,installer:installerPath,trace:tracePath}));
-  app=await _electron.launch({executablePath:cloneExe,timeout:60000});app.process().stderr.on('data',chunk=>process.stderr.write(chunk));const page=await app.firstWindow();
+  app=await _electron.launch({executablePath:cloneExe,timeout:60000});console.log('NATIVE_COLD_START_PROCESS_READY: '+mode);app.process().stderr.on('data',chunk=>process.stderr.write(chunk));const page=await app.firstWindow();
   if(mode==='backup-failure'||mode==='corrupt-cache'){
    await page.waitForURL('http://127.0.0.1:*/**',{timeout:60000});await page.locator('#content[aria-busy="false"]').waitFor();const info=await page.evaluate(()=>window.allyDesktop.info());
    assert.equal(info.update.phase,mode==='backup-failure'?'ready':'error');if(mode==='backup-failure'){assert.ok(info.update.error);assert.equal(await page.locator('#app-update-indicator').isVisible(),true);}
    assert.equal(existsSync(stateFile)?readFileSync(stateFile,'utf8'):null,initialInstallState,'Failed startup invoked installer');
    const events=JSON.parse(readFileSync(tracePath)),write=events.findIndex(e=>e.event==='writable-database');assert.ok(write>events.findIndex(e=>e.event==='manifest-request'));if(mode==='backup-failure')assert.ok(events.findIndex(e=>e.event==='backup-rejected')<write);
-   await app.close();app=null;assert.deepEqual(comparable(snapshot()),original);results.push({mode,currentAppOpened:true,noInstaller:true,recordsPreserved:true});console.log('NATIVE_COLD_START_FALLBACK_OK: '+mode);continue;
+   await Promise.race([app.close(),sleep(15000).then(()=>{throw Error('Test app did not close');})]);app=null;assert.deepEqual(comparable(snapshot()),original);results.push({mode,currentAppOpened:true,noInstaller:true,recordsPreserved:true});console.log('NATIVE_COLD_START_FALLBACK_OK: '+mode);continue;
   }
   await page.waitForURL('file://**/startup.html',{timeout:30000});assert.equal(await page.locator('button').count(),0);await page.getByRole('progressbar',{name:'App update progress',exact:true}).waitFor();
   if(mode==='online')await page.locator('#download-facts:not([hidden])').waitFor({timeout:30000});
@@ -61,4 +63,4 @@ try{
   app=null;stopInstalled();assert.deepEqual(comparable(snapshot()),original);results.push({mode,realSignedInstaller:true,automaticReopen:true,noEarlyStoreOrSync:true,progressOnly:true,recordsPreserved:true});console.log('NATIVE_COLD_START_INSTALL_OK: '+mode+' signed installer, no early Store, visible reopen, matching acknowledgement, records preserved');
  }
  writeFileSync(recordPath+'.cold-start.json',JSON.stringify({version,results,unmodifiedCandidateMain:true,testOnlyVersionAndTransportAdapters:true},null,2));
-}catch(error){if(existsSync(tracePath))console.error('COLD_START_EVENTS',readFileSync(tracePath,'utf8'));throw error;}finally{if(app)try{await app.close();}catch{}stopInstalled();}
+}catch(error){if(existsSync(tracePath))console.error('COLD_START_EVENTS',readFileSync(tracePath,'utf8'));throw error;}finally{if(app)try{await Promise.race([app.close(),sleep(5000)]);}catch{}stopInstalled();}
