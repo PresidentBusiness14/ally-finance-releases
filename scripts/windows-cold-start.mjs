@@ -42,7 +42,7 @@ try{
   stopInstalled();rmSync(tracePath,{force:true});mkdirSync(join(profile,'updates'),{recursive:true});
   if(mode==='corrupt-cache')writeFileSync(join(profile,'updates','verified-release.json'),JSON.stringify({payload:'forged',signature:'invalid'}));
   else if(mode==='offline-cache'){cpSync(installerPath,join(profile,'updates',`Ally-Finance-Setup-${version}.exe`));writeFileSync(join(profile,'updates','verified-release.json'),JSON.stringify(manifest));}
-  else rmSync(join(profile,'updates','verified-release.json'),{force:true});
+  else {rmSync(join(profile,'updates','verified-release.json'),{force:true});rmSync(join(profile,'updates',`Ally-Finance-Setup-${version}.exe`),{force:true});}
   const initialInstallState=existsSync(stateFile)?readFileSync(stateFile,'utf8'):null;
   writeFileSync(configPath,JSON.stringify({mode,sourceVersion:sourceVersion.join('.'),installedExe,profile,manifest:manifestPath,installer:installerPath,trace:tracePath}));
   app=await _electron.launch({executablePath:cloneExe,timeout:60000});console.log('NATIVE_COLD_START_PROCESS_READY: '+mode);app.process().stderr.on('data',chunk=>process.stderr.write(chunk));const page=await app.firstWindow();
