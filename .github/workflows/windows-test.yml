@@ -4,7 +4,7 @@ on:
     inputs:
       tag:
         required: true
-        default: v1.0.6
+        default: v1.0.7
         type: string
       baseline:
         description: Upgrade paths to run
@@ -13,7 +13,7 @@ on:
         type: choice
         options:
           - all
-          - v1.0.5
+          - v1.0.6
 permissions:
   contents: read
 jobs:
@@ -22,7 +22,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        baseline: ${{ fromJSON(inputs.baseline == 'v1.0.5' && '["v1.0.5"]' || '["v1.0.0", "v1.0.1", "v1.0.2", "v1.0.3", "v1.0.4", "v1.0.5"]') }}
+        baseline: ${{ fromJSON(inputs.baseline == 'v1.0.6' && '["v1.0.6"]' || '["v1.0.0", "v1.0.1", "v1.0.2", "v1.0.3", "v1.0.4", "v1.0.5", "v1.0.6"]') }}
     runs-on: windows-latest
     timeout-minutes: 15
     steps:
@@ -55,7 +55,7 @@ jobs:
           node scripts/windows-upgrade-profile.mjs seed $exe.FullName "$env:RUNNER_TEMP/ally-before.json"
           if ($LASTEXITCODE -ne 0) { throw "Populated profile setup failed" }
       - name: Exercise real updater download, installer and automatic reopen
-        if: matrix.baseline == 'v1.0.4' || matrix.baseline == 'v1.0.5'
+        if: matrix.baseline == 'v1.0.5' || matrix.baseline == 'v1.0.6'
         shell: pwsh
         env:
           BASELINE_TAG: ${{ matrix.baseline }}
@@ -81,7 +81,7 @@ jobs:
           RELEASE_TAG: ${{ inputs.tag }}
         run: |
           $phase = 'verify'
-          if ('${{ matrix.baseline }}' -in @('v1.0.4','v1.0.5')) { $phase = 'verify-after-hop' } else {
+          if ('${{ matrix.baseline }}' -in @('v1.0.5','v1.0.6')) { $phase = 'verify-after-hop' } else {
             $installer = Get-ChildItem "$env:RUNNER_TEMP/ally-installer" -Filter *.exe | Select-Object -First 1
             $install = Start-Process $installer.FullName -ArgumentList '/S' -PassThru
             if (-not $install.WaitForExit(120000) -or $install.ExitCode -ne 0) { throw "Candidate install failed" }
@@ -90,7 +90,7 @@ jobs:
           node scripts/windows-upgrade-profile.mjs $phase $exe.FullName "$env:RUNNER_TEMP/ally-before.json" $env:RELEASE_TAG.TrimStart('v')
           if ($LASTEXITCODE -ne 0) { throw "Populated profile upgrade failed" }
       - name: Verify automatic cold-start installation and failure recovery
-        if: matrix.baseline == 'v1.0.5'
+        if: matrix.baseline == 'v1.0.6'
         shell: pwsh
         env:
           RELEASE_TAG: ${{ inputs.tag }}
@@ -101,7 +101,7 @@ jobs:
           node scripts/windows-cold-start.mjs $exe.FullName "$env:RUNNER_TEMP/ally-before.json" $env:RELEASE_TAG.TrimStart('v') $asar.FullName "$env:RUNNER_TEMP/ally-installer/update.json" $installer.FullName
           if ($LASTEXITCODE -ne 0) { throw "Cold-start update verification failed" }
       - name: Report synthetic startup diagnostics
-        if: always() && matrix.baseline == 'v1.0.5'
+        if: always() && matrix.baseline == 'v1.0.6'
         shell: pwsh
         run: |
           $trace = "$env:RUNNER_TEMP/ally-cold-start/events.json"

@@ -2,6 +2,7 @@
 import {_electron} from 'playwright';
 import {verifyAdvancedUI} from './windows-advanced-ui.mjs';
 import {verifyUpdateBadges} from './windows-update-ui.mjs';
+import {verifyPlanningControls} from './windows-planning-controls.mjs';
 import {verifyTrueExit} from './windows-exit-ui.mjs';
 import assert from 'node:assert/strict';
 import {readFileSync,writeFileSync,existsSync} from 'node:fs';
@@ -152,7 +153,7 @@ try{
   for(const [file,digest] of Object.entries(manifest.files))assert.equal(hash(join(backupDir,file)),digest);
   assert.deepEqual(withoutReporting(snapshot(backupDir).tables),withoutReporting(before.tables));
   console.log('POPULATED_UPGRADE_OK: all saved records and protected connection files preserved; startup backup verified');
-  app=await _electron.launch({executablePath,timeout:60000});const advancedPage=await app.firstWindow();await advancedPage.waitForURL('http://127.0.0.1:*/**',{timeout:45000});await verifyUpdateBadges(app,advancedPage);await verifyAdvancedUI(app,advancedPage);await verifyTrueExit(app,advancedPage);app=null;
+  app=await _electron.launch({executablePath,timeout:60000});const advancedPage=await app.firstWindow();await advancedPage.waitForURL('http://127.0.0.1:*/**',{timeout:45000});await verifyUpdateBadges(app,advancedPage);await verifyPlanningControls(app,advancedPage);await verifyAdvancedUI(app,advancedPage);await verifyTrueExit(app,advancedPage);app=null;
   app=await _electron.launch({executablePath,timeout:60000});const reopenedPage=await app.firstWindow();await reopenedPage.waitForURL('http://127.0.0.1:*/**',{timeout:45000});
   const reopened=await reopenedPage.evaluate(async()=>{const s=await(await fetch('/api/state')).json();return {planning:{today:s.planning.today,plans:s.planning.plans.map(({readOnlyOther,readOnlyLegacy,...plan})=>plan),budgets:s.planning.budgets},accounts:s.accounts,rows:s.rows};});assert.deepEqual(reopened,before.state,'Closing and reopening changed saved records');await app.close();app=null;console.log('NATIVE_REOPEN_AFTER_CLOSE_OK: fresh process, all original plans, budgets and bank records preserved');
  }else throw Error('Choose seed or verify.');
