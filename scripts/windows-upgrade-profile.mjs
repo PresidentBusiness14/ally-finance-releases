@@ -25,12 +25,13 @@ try{
    const require=process.getBuiltinModule('node:module').createRequire(process.getBuiltinModule('node:path').join(app.getAppPath(),'package.json'));
    const fs=require('node:fs'),path=require('node:path');
    const {Store}=require(path.join(app.getAppPath(),'src/store.mjs'));
+   const {easternDay}=require(path.join(app.getAppPath(),'src/household-planning.mjs'));
    const {sealSetup}=require(path.join(app.getAppPath(),'desktop/setup-bundle.mjs'));
-   const dir=fs.mkdtempSync(path.join(require('node:os').tmpdir(),'ally-upgrade-fixture-')),dbPath=path.join(dir,'fixture.sqlite'),store=new Store(dbPath),now=new Date().toISOString(),month=now.slice(0,7);
+   const dir=fs.mkdtempSync(path.join(require('node:os').tmpdir(),'ally-upgrade-fixture-')),dbPath=path.join(dir,'fixture.sqlite'),store=new Store(dbPath),now=new Date().toISOString(),day=easternDay(Date.parse(now)),month=day.slice(0,7);
    store.saveSetting('profile-identity',{id:'synthetic-profile'});
    store.saveSetting('connections',{list:[{id:'a1',provider:'chase',institutionId:'ins_56',name:'Synthetic bank'}]});
    store.connect('ally-a1-production','synthetic-item','Synthetic bank');
-   store.apply('ally-a1-production',[{account_id:'synthetic-account',name:'Synthetic checking',type:'depository',subtype:'checking',mask:'0000',balances:{current:4321.09,available:4200,iso_currency_code:'USD'}}],[{added:[{transaction_id:'synthetic-transaction',account_id:'synthetic-account',name:'Synthetic groceries',amount:56.78,date:now.slice(0,10),pending:false,iso_currency_code:'USD'}],modified:[],removed:[],next_cursor:'synthetic-cursor'}]);
+   store.apply('ally-a1-production',[{account_id:'synthetic-account',name:'Synthetic checking',type:'depository',subtype:'checking',mask:'0000',balances:{current:4321.09,available:4200,iso_currency_code:'USD'}}],[{added:[{transaction_id:'synthetic-transaction',account_id:'synthetic-account',name:'Synthetic groceries',amount:56.78,date:day,pending:false,iso_currency_code:'USD'}],modified:[],removed:[],next_cursor:'synthetic-cursor'}]);
    store.saveSetting('profile-settings',{importFrom:month+'-01',accounts:{'a1:synthetic-account':{included:true,purpose:'Joint',label:'Saved checking name'}},rules:{'synthetic groceries':{name:'Groceries',group:'Joint',category:'Groceries/Household'}}});
    store.saveSetting('bank-sync',{at:now,results:[{ok:true,connectionId:'a1'}]});store.saveSetting('sheet-sync',{lastSuccess:now});
    store.saveSetting('notification-settings',{enabled:false,weekly:true,sound:false,hideAmounts:true});
