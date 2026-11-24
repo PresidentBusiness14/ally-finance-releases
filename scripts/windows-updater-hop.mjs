@@ -12,7 +12,8 @@ const before=JSON.parse(readFileSync(recordPath)),stateFile=join(before.userData
 const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));let app;
 const ps=source=>execFileSync('powershell.exe',['-NoLogo','-NoProfile','-NonInteractive','-Command',source],{encoding:'utf8'}).trim();
 try{
- app=await _electron.launch({executablePath,timeout:60000});app.process().stderr.on('data',chunk=>process.stderr.write(chunk));const page=await app.firstWindow();await page.waitForURL('http://127.0.0.1:*/**',{timeout:45000});
+ // Open the baseline dashboard for the running-app path. The separate cold-start test covers launch-time installation.
+ app=await _electron.launch({executablePath,args:['--updated'],timeout:60000});app.process().stderr.on('data',chunk=>process.stderr.write(chunk));const page=await app.firstWindow();await page.waitForURL('http://127.0.0.1:*/**',{timeout:45000});
  const result=await app.evaluate(async({app},{candidateArchive,manifestPath,version,eventsPath})=>{
   const require=process.getBuiltinModule('node:module').createRequire(process.getBuiltinModule('node:path').join(app.getAppPath(),'package.json')),path=require('node:path'),fs=require('node:fs');
   const source=app.getAppPath();
