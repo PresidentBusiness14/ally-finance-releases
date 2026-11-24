@@ -25,9 +25,8 @@ try{
    const require=process.getBuiltinModule('node:module').createRequire(process.getBuiltinModule('node:path').join(app.getAppPath(),'package.json'));
    const fs=require('node:fs'),path=require('node:path');
    const {Store}=require(path.join(app.getAppPath(),'src/store.mjs'));
-   const {easternDay}=require(path.join(app.getAppPath(),'src/household-planning.mjs'));
    const {sealSetup}=require(path.join(app.getAppPath(),'desktop/setup-bundle.mjs'));
-   const dir=fs.mkdtempSync(path.join(require('node:os').tmpdir(),'ally-upgrade-fixture-')),dbPath=path.join(dir,'fixture.sqlite'),store=new Store(dbPath),now=new Date().toISOString(),day=easternDay(Date.parse(now)),month=day.slice(0,7);
+   const dir=fs.mkdtempSync(path.join(require('node:os').tmpdir(),'ally-upgrade-fixture-')),dbPath=path.join(dir,'fixture.sqlite'),store=new Store(dbPath),now=new Date().toISOString(),day=new Intl.DateTimeFormat('en-CA',{timeZone:'America/New_York',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date(now)),month=day.slice(0,7);
    store.saveSetting('profile-identity',{id:'synthetic-profile'});
    store.saveSetting('connections',{list:[{id:'a1',provider:'chase',institutionId:'ins_56',name:'Synthetic bank'}]});
    store.connect('ally-a1-production','synthetic-item','Synthetic bank');
